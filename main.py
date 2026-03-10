@@ -14,40 +14,42 @@ def init_db():
 
 @app.route('/')
 def home():
-    return 'Сервер работает! Используй /login или /register'
+    return 'Сервер работает!'
 
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    
-    conn = sqlite3.connect('users.db')
     try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        conn = sqlite3.connect('users.db')
         password_hash = generate_password_hash(password)
         conn.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)',
                     (username, password_hash))
         conn.commit()
-        return jsonify({'success': True})
-    except sqlite3.IntegrityError:
-        return jsonify({'success': False, 'error': 'Username exists'})
-    finally:
         conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    
-    conn = sqlite3.connect('users.db')
-    user = conn.execute('SELECT password_hash FROM users WHERE username = ?',
-                       (username,)).fetchone()
-    conn.close()
-    
-    if user and check_password_hash(user[0], password):
-        return jsonify({'success': True})
-    return jsonify({'success': False, 'error': 'Invalid credentials'})
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        conn = sqlite3.connect('users.db')
+        user = conn.execute('SELECT password_hash FROM users WHERE username = ?',
+                           (username,)).fetchone()
+        conn.close()
+        
+        if user and check_password_hash(user[0], password):
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Неверный логин или пароль'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     init_db()
