@@ -12,6 +12,10 @@ def init_db():
                      password_hash TEXT NOT NULL)''')
     conn.close()
 
+@app.route('/')
+def home():
+    return 'Сервер работает! Используй /login или /register'
+
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
