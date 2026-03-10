@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request, jsonify
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -141,5 +142,6 @@ def get_skin():
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
     init_db()
-    start_ping()  # Запускаем автопинг
-    app.run()
+    start_ping()
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
