@@ -27,10 +27,10 @@ def init_db():
 
 init_db()
 
-# ==================== МАРШРУТЫ ====================
+# ==================== АККАУНТЫ ====================
 @app.route('/')
 def home():
-    return 'Сервер работает! Используй /register, /login, /user-data, /add-coins'
+    return 'Сервер работает! Используй /register, /login, /user-data, /add-coins, /create-room, /join-room, /list-rooms, /leave-room'
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -38,7 +38,6 @@ def register():
         data = request.get_json()
         username = data.get('username')
         password = data.get('password')
-        
         if not username or not password:
             return jsonify({'success': False, 'error': 'Заполни все поля'}), 400
 
@@ -50,7 +49,6 @@ def register():
                     (username, password_hash))
         conn.commit()
         conn.close()
-        
         return jsonify({'success': True})
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'error': 'Логин уже существует'}), 400
@@ -84,17 +82,12 @@ def login():
 def user_data():
     try:
         username = request.args.get('username')
-        if not username:
-            return jsonify({'success': False, 'error': 'Нет username'}), 400
-            
         conn = sqlite3.connect('users.db')
         user = conn.execute('''SELECT skin, skin_color, coins, achievements, unlocked_colors 
                                FROM users WHERE username=?''', (username,)).fetchone()
         conn.close()
-        
         if not user:
-            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
-            
+            return jsonify({'success': False, 'error': 'Не найден'}), 404
         return jsonify({
             'success': True,
             'skin': user[0],
@@ -112,10 +105,6 @@ def add_coins():
         data = request.get_json()
         username = data.get('username')
         amount = data.get('amount', 0)
-        
-        if not username:
-            return jsonify({'success': False, 'error': 'Нет username'}), 400
-        
         conn = sqlite3.connect('users.db')
         conn.execute('UPDATE users SET coins = coins + ? WHERE username=?',
                     (amount, username))
@@ -123,7 +112,6 @@ def add_coins():
         new_coins = conn.execute('SELECT coins FROM users WHERE username=?',
                                 (username,)).fetchone()[0]
         conn.close()
-        
         return jsonify({'success': True, 'coins': new_coins})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -139,6 +127,7 @@ def create_room():
     try:
         data = request.get_json()
         creator = data.get('creator')
+        room_name = data.get('room_name', f"Комната {creator}")
         max_players = data.get('max_players', 2)
         difficulty = data.get('difficulty', 'easy')
         
@@ -149,6 +138,8 @@ def create_room():
         room_id = generate_room_id()
         
         rooms[room_id] = {
+            'name': room_name,
+            'creator': creator,
             'players': [creator],
             'max_players': max_players,
             'difficulty': difficulty,
@@ -158,7 +149,7 @@ def create_room():
             'created': time.time()
         }
         
-        print(f"✅ Комната {room_id} создана игроком {creator}")
+        print(f"✅ Комната '{room_name}' ({room_id}) создана игроком {creator}")
         return jsonify({
             'success': True,
             'room_id': room_id,
@@ -189,11 +180,11 @@ def join_room():
             return jsonify({'success': False, 'error': 'Ты уже в комнате'}), 400
         
         room['players'].append(username)
-        print(f"✅ {username} зашёл в комнату {room_id}")
+        print(f"✅ {username} зашёл в комнату '{room['name']}' ({room_id})")
         
         if len(room['players']) == room['max_players']:
             room['status'] = 'playing'
-            print(f"🎮 Игра началась в комнате {room_id}")
+            print(f"🎮 Игра началась в комнате '{room['name']}'")
         
         return jsonify({'success': True, 'room': room})
     except Exception as e:
@@ -213,11 +204,11 @@ def leave_room():
         
         if username in room['players']:
             room['players'].remove(username)
-            print(f"❌ {username} вышел из комнаты {room_id}")
+            print(f"❌ {username} вышел из комнаты '{room.get('name', room_id)}'")
         
         if not room['players']:
             del rooms[room_id]
-            print(f"🗑️ Комната {room_id} удалена")
+            print(f"🗑️ Комната удалена")
         
         return jsonify({'success': True})
     except Exception as e:
@@ -229,6 +220,8 @@ def list_rooms():
         available = [
             {
                 'room_id': rid,
+                'name': r.get('name', f"Комната {r['creator']}"),
+                'creator': r['creator'],
                 'players': r['players'],
                 'max_players': r['max_players'],
                 'difficulty': r['difficulty'],
@@ -253,6 +246,8 @@ def room_status():
         
         return jsonify({
             'success': True,
+            'name': room.get('name', 'Комната'),
+            'creator': room['creator'],
             'players': room['players'],
             'players_count': len(room['players']),
             'max_players': room['max_players'],
@@ -283,7 +278,7 @@ def collect_symbol():
         
         if game_over:
             room['status'] = 'finished'
-            print(f"🏆 Победа в комнате {room_id}")
+            print(f"🏆 Победа в комнате '{room.get('name', room_id)}'")
         
         return jsonify({
             'success': True,
