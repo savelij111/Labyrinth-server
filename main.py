@@ -1,38 +1,30 @@
 import os
-import logging
 from flask import Flask, request, jsonify
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 import json
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
 app = Flask(__name__)
 
+# ==================== БАЗА ДАННЫХ ====================
 def init_db():
-    try:
-        logger.info("🔄 Создание/проверка БД...")
-        conn = sqlite3.connect('users.db')
-        conn.execute('''CREATE TABLE IF NOT EXISTS users
-                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                         username TEXT UNIQUE NOT NULL,
-                         password_hash TEXT NOT NULL,
-                         skin TEXT DEFAULT '@',
-                         skin_color TEXT DEFAULT '0,255,200',
-                         coins INTEGER DEFAULT 0,
-                         achievements TEXT DEFAULT '[]',
-                         unlocked_colors TEXT DEFAULT '[]')''')
-        conn.commit()
-        conn.close()
-        logger.info("✅ База данных готова")
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка БД: {e}")
-        return False
+    conn = sqlite3.connect('users.db')
+    conn.execute('''CREATE TABLE IF NOT EXISTS users
+                    (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     username TEXT UNIQUE NOT NULL,
+                     password_hash TEXT NOT NULL,
+                     skin TEXT DEFAULT '@',
+                     skin_color TEXT DEFAULT '0,255,200',
+                     coins INTEGER DEFAULT 0,
+                     achievements TEXT DEFAULT '[]',
+                     unlocked_colors TEXT DEFAULT '[]')''')
+    conn.commit()
+    conn.close()
+    print("✅ База данных готова")
 
 init_db()
 
+# ==================== МАРШРУТЫ ====================
 @app.route('/')
 def home():
     return 'Сервер работает! Используй /register, /login, /user-data, /add-coins'
@@ -66,8 +58,8 @@ def login():
         password = data.get('password')
 
         conn = sqlite3.connect('users.db')
-        user = conn.execute('SELECT password_hash, coins, achievements, unlocked_colors FROM users WHERE username = ?',
-                           (username,)).fetchone()
+        user = conn.execute('''SELECT password_hash, coins, achievements, unlocked_colors 
+                               FROM users WHERE username = ?''', (username,)).fetchone()
         conn.close()
 
         if user and check_password_hash(user[0], password):
@@ -86,8 +78,8 @@ def user_data():
     try:
         username = request.args.get('username')
         conn = sqlite3.connect('users.db')
-        user = conn.execute('SELECT skin, skin_color, coins, achievements, unlocked_colors FROM users WHERE username=?',
-                           (username,)).fetchone()
+        user = conn.execute('''SELECT skin, skin_color, coins, achievements, unlocked_colors 
+                               FROM users WHERE username=?''', (username,)).fetchone()
         conn.close()
         if not user:
             return jsonify({'success': False, 'error': 'Не найден'}), 404
@@ -119,7 +111,8 @@ def add_coins():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# ==================== ЗАПУСК ====================
 if __name__ == '__main__':
-    logger.info("🚀 Запуск сервера...")
     port = int(os.environ.get('PORT', 10000))
+    print(f"🚀 Сервер запущен на порту {port}")
     app.run(host='0.0.0.0', port=port)
