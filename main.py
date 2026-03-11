@@ -81,6 +81,9 @@ def save_skin():
         skin = data.get('skin')
         skin_color = data.get('skin_color')
         
+        if not username or not skin or not skin_color:
+            return jsonify({'success': False, 'error': 'Не все данные'}), 400
+        
         conn = sqlite3.connect('users.db')
         conn.execute('UPDATE users SET skin=?, skin_color=? WHERE username=?',
                     (skin, skin_color, username))
@@ -95,16 +98,22 @@ def save_skin():
 def get_skin():
     try:
         username = request.args.get('username')
+        
+        if not username:
+            return jsonify({'success': False, 'error': 'Нет username'}), 400
+        
         conn = sqlite3.connect('users.db')
         user = conn.execute('SELECT skin, skin_color FROM users WHERE username=?',
                            (username,)).fetchone()
         conn.close()
+        
         if user:
             return jsonify({
                 'success': True,
                 'skin': user[0] or '@',
                 'skin_color': user[1] or '0,255,200'
             })
+        
         return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -117,4 +126,4 @@ if __name__ == '__main__':
         print(f"🔌 Сервер слушает порт {port}")
         app.run(host='0.0.0.0', port=port)
     else:
-        print("❌ Ошибка базы данных")
+        print("❌ Ошибка базы данных. Сервер не запущен.")
