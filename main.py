@@ -5,12 +5,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import threading
 import time
+import random
+import string
 
 app = Flask(__name__)
 
 # ==================== БАЗА ДАННЫХ ====================
 def init_db():
-    """Создание таблицы users, если её нет"""
     try:
         conn = sqlite3.connect('users.db')
         conn.execute('''CREATE TABLE IF NOT EXISTS users
@@ -21,38 +22,213 @@ def init_db():
                          skin_color TEXT DEFAULT '0,255,200')''')
         conn.commit()
         conn.close()
-        print("✅ База данных готова и таблица создана")
+        print("✅ База данных готова")
         return True
     except Exception as e:
-        print(f"❌ Ошибка при создании базы данных: {e}")
+        print(f"❌ Ошибка БД: {e}")
         return False
 
-# ==================== АВТОПИНГ (можно отключить, если мешает) ====================
+# ==================== АВТОПИНГ ====================
 RENDER_URL = "https://labyrinth-server-2wod.onrender.com"
 
 def self_ping():
-    """Пинг сам себя каждые 10 минут, чтобы Render не усыпил сервер"""
     while True:
         try:
-            response = requests.get(f"{RENDER_URL}/ping", timeout=10)
-            print(f"🏓 Пинг OK: {response.status_code}")
-        except Exception as e:
-            print(f"⚠️ Ошибка пинга: {e}")
-        time.sleep(600)  # 10 минут
+            requests.get(f"{RENDER_URL}/ping", timeout=10)
+            print("🏓 Пинг OK")
+        except:
+            print("⚠️ Ошибка пинга")
+        time.sleep(600)
 
 def start_ping():
-    """Запуск пинга в отдельном потоке"""
-    try:
-        thread = threading.Thread(target=self_ping, daemon=True)
-        thread.start()
-        print("✅ Автопинг запущен")
-    except Exception as e:
-        print(f"⚠️ Не удалось запустить автопиинг: {e}")
+    thread = threading.Thread(target=self_ping, daemon=True)
+    thread.start()
+    print("✅ Автопинг запущен")
 
-# ==================== МАРШРУТЫ ====================
+# ==================== КОМНАТЫ ====================
+rooms = {}
+
+@app.route('/create-room', methods=['POST'])
+def create_room():
+    try:
+        data = request.get_json()
+        creator = data.get('creator')
+        max_players = data.get('max_players', 2)
+        difficulty = data.get('difficulty', 'easy')
+        
+        if not creator:
+            return jsonify({'success': False, 'error': 'Укажи создателя'}), 400
+        
+        symbols_needed = {'easy': 5, 'medium': 8, 'hard': 12}.get(difficulty, 5)
+        room_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        
+        rooms[room_id] = {
+            'players': [creator],
+            'max_players': max_players,
+            'difficulty': difficulty,
+            'symbols_needed': symbols_needed,
+            'total_collected': 0,
+            'status': 'waiting',
+            'created': time.time()
+        }
+        
+        print(f"✅ Комната {room_id} создана {creator}")
+        return jsonify({
+            'success': True,
+            'room_id': room_id,
+            'room': rooms[room_id]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/join-room', methods=['POST'])
+def join_room():
+    try:
+        data = request.get_json()
+        room_id = data.get('room_id')
+        username = data.get('username')
+        
+        if room_id not in rooms:
+            return jsonify({'success': False, 'error': 'Комната не найдена'}), 404
+        
+        room = rooms[room_id]
+        
+        if room['status'] != 'waiting':
+            return jsonify({'success': False, 'error': 'Игра уже началась'}), 400
+        
+        if len(room['players']) >= room['max_players']:
+            return jsonify({'success': False, 'error': 'Комната полная'}), 400
+        
+        if username in room['players']:
+            return jsonify({'success': False, 'error': 'Ты уже в комнате'}), 400
+        
+        room['players'].append(username)
+        print(f"✅ {username} зашёл в комнату {room_id}")
+        
+        return jsonify({'success': True, 'room': room})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/leave-room', methods=['POST'])
+def leave_room():
+    try:
+        data = request.get_json()
+        room_id = data.get('room_id')
+        username = data.get('username')
+        
+        if room_id not in rooms:
+            return jsonify({'success': False, 'error': 'Комната не найдена'}), 404
+        
+        room = rooms[room_id]
+        
+        if username in room['players']:
+            room['players'].remove(username)
+            print(f"❌ {username} вышел из комнаты {room_id}")
+        
+        if not room['players']:
+            del rooms[room_id]
+            print(f"🗑️ Комната {room_id} удалена (пусто)")
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/start-game', methods=['POST'])
+def start_game():
+    try:
+        data = request.get_json()
+        room_id = data.get('room_id')
+        
+        if room_id not in rooms:
+            return jsonify({'success': False, 'error': 'Комната не найдена'}), 404
+        
+        room = rooms[room_id]
+        
+        if len(room['players']) < 2:
+            return jsonify({'success': False, 'error': 'Нужно минимум 2 игрока'}), 400
+        
+        room['status'] = 'playing'
+        print(f"🎮 Игра началась в комнате {room_id}")
+        
+        return jsonify({'success': True, 'room': room})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/room-status', methods=['GET'])
+def room_status():
+    try:
+        room_id = request.args.get('room_id')
+        
+        if room_id not in rooms:
+            return jsonify({'success': False, 'error': 'Комната не найдена'}), 404
+        
+        room = rooms[room_id]
+        
+        return jsonify({
+            'success': True,
+            'players': room['players'],
+            'players_count': len(room['players']),
+            'max_players': room['max_players'],
+            'status': room['status'],
+            'total_collected': room['total_collected'],
+            'symbols_needed': room['symbols_needed']
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/collect-symbol', methods=['POST'])
+def collect_symbol():
+    try:
+        data = request.get_json()
+        room_id = data.get('room_id')
+        username = data.get('username')
+        
+        if room_id not in rooms:
+            return jsonify({'success': False, 'error': 'Комната не найдена'}), 404
+        
+        room = rooms[room_id]
+        
+        if username not in room['players']:
+            return jsonify({'success': False, 'error': 'Ты не в этой комнате'}), 400
+        
+        room['total_collected'] += 1
+        game_over = room['total_collected'] >= room['symbols_needed']
+        
+        if game_over:
+            room['status'] = 'finished'
+            print(f"🏆 Победа в комнате {room_id}")
+        
+        return jsonify({
+            'success': True,
+            'total_collected': room['total_collected'],
+            'symbols_needed': room['symbols_needed'],
+            'game_over': game_over
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/list-rooms', methods=['GET'])
+def list_rooms():
+    try:
+        available = [
+            {
+                'room_id': rid,
+                'players': r['players'],
+                'max_players': r['max_players'],
+                'difficulty': r['difficulty'],
+                'players_count': len(r['players'])
+            }
+            for rid, r in rooms.items()
+            if r['status'] == 'waiting' and len(r['players']) < r['max_players']
+        ]
+        return jsonify({'success': True, 'rooms': available})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ==================== СТАРЫЕ МАРШРУТЫ ====================
 @app.route('/')
 def home():
-    return 'Сервер работает! Используй /register, /login, /save-skin, /get-skin'
+    return 'Сервер работает! Используй /register, /login, /create-room, /list-rooms'
 
 @app.route('/ping')
 def ping():
@@ -60,12 +236,8 @@ def ping():
 
 @app.route('/register', methods=['POST'])
 def register():
-    """Регистрация нового пользователя"""
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'Нет данных'}), 400
-            
         username = data.get('username')
         password = data.get('password')
         
@@ -83,19 +255,14 @@ def register():
         return jsonify({'success': True})
         
     except sqlite3.IntegrityError:
-        return jsonify({'success': False, 'error': 'Такой логин уже существует'}), 400
+        return jsonify({'success': False, 'error': 'Логин уже существует'}), 400
     except Exception as e:
-        print(f"❌ Ошибка регистрации: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/login', methods=['POST'])
 def login():
-    """Вход пользователя"""
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'Нет данных'}), 400
-            
         username = data.get('username')
         password = data.get('password')
         
@@ -109,25 +276,16 @@ def login():
             return jsonify({'success': True})
         
         return jsonify({'success': False, 'error': 'Неверный логин или пароль'}), 400
-        
     except Exception as e:
-        print(f"❌ Ошибка входа: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/save-skin', methods=['POST'])
 def save_skin():
-    """Сохранение скина пользователя"""
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'Нет данных'}), 400
-            
         username = data.get('username')
         skin = data.get('skin')
         skin_color = data.get('skin_color')
-        
-        if not username or not skin or not skin_color:
-            return jsonify({'success': False, 'error': 'Не все данные переданы'}), 400
         
         conn = sqlite3.connect('users.db')
         conn.execute('UPDATE users SET skin=?, skin_color=? WHERE username=?',
@@ -135,38 +293,26 @@ def save_skin():
         conn.commit()
         conn.close()
         
-        print(f"✅ Скин сохранён для {username}: {skin} {skin_color}")
         return jsonify({'success': True})
-        
     except Exception as e:
-        print(f"❌ Ошибка сохранения скина: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/get-skin', methods=['GET'])
 def get_skin():
-    """Загрузка скина пользователя"""
     try:
         username = request.args.get('username')
-        
-        if not username:
-            return jsonify({'success': False, 'error': 'Не указан пользователь'}), 400
-        
         conn = sqlite3.connect('users.db')
         user = conn.execute('SELECT skin, skin_color FROM users WHERE username=?',
                            (username,)).fetchone()
         conn.close()
-        
         if user:
             return jsonify({
                 'success': True,
                 'skin': user[0] or '@',
                 'skin_color': user[1] or '0,255,200'
             })
-        
         return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
-        
     except Exception as e:
-        print(f"❌ Ошибка загрузки скина: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== ЗАПУСК ====================
@@ -175,7 +321,7 @@ if __name__ == '__main__':
     if init_db():
         start_ping()
         port = int(os.environ.get('PORT', 10000))
-        print(f"🔌 Сервер будет слушать порт {port}")
+        print(f"🔌 Сервер слушает порт {port}")
         app.run(host='0.0.0.0', port=port)
     else:
-        print("❌ Не удалось инициализировать базу данных. Сервер не запущен.")
+        print("❌ Ошибка базы данных")
