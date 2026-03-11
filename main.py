@@ -13,8 +13,9 @@ app = Flask(__name__)
 
 # ==================== БАЗА ДАННЫХ ====================
 def init_db():
+    """Создание таблицы users, если её нет"""
     try:
-        logger.info("🔄 Инициализация базы данных...")
+        logger.info("🔄 Проверка/создание базы данных...")
         conn = sqlite3.connect('users.db')
         conn.execute('''CREATE TABLE IF NOT EXISTS users
                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,11 +28,14 @@ def init_db():
                          unlocked_colors TEXT DEFAULT '[]')''')
         conn.commit()
         conn.close()
-        logger.info("✅ База данных готова")
+        logger.info("✅ База данных готова (таблица users существует)")
         return True
     except Exception as e:
-        logger.error(f"❌ Ошибка БД: {e}")
+        logger.error(f"❌ Ошибка при создании БД: {e}")
         return False
+
+# Принудительно создаём БД при старте
+init_db()
 
 # ==================== МАРШРУТЫ ====================
 @app.route('/')
@@ -62,6 +66,20 @@ def register():
         
         conn = sqlite3.connect('users.db')
         logger.info("💾 REGISTER: соединение с БД успешно")
+        
+        # Проверяем, есть ли таблица (на всякий случай)
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchall()
+        if not tables:
+            logger.error("❌ REGISTER: таблицы users нет! Создаём...")
+            conn.execute('''CREATE TABLE IF NOT EXISTS users
+                            (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                             username TEXT UNIQUE NOT NULL,
+                             password_hash TEXT NOT NULL,
+                             skin TEXT DEFAULT '@',
+                             skin_color TEXT DEFAULT '0,255,200',
+                             coins INTEGER DEFAULT 0,
+                             achievements TEXT DEFAULT '[]',
+                             unlocked_colors TEXT DEFAULT '[]')''')
         
         password_hash = generate_password_hash(password)
         conn.execute('''INSERT INTO users 
@@ -181,9 +199,6 @@ def add_coins():
 # ==================== ЗАПУСК ====================
 if __name__ == '__main__':
     logger.info("🚀 Запуск сервера...")
-    if init_db():
-        port = int(os.environ.get('PORT', 10000))
-        logger.info(f"🔌 Сервер слушает порт {port}")
-        app.run(host='0.0.0.0', port=port)
-    else:
-        logger.error("❌ Ошибка базы данных")
+    port = int(os.environ.get('PORT', 10000))
+    logger.info(f"🔌 Сервер слушает порт {port}")
+    app.run(host='0.0.0.0', port=port)
